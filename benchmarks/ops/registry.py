@@ -354,15 +354,31 @@ register_op(OpConfig(
     test_file='tests/ops/test_gdn2.py',
 ))
 
+_kda_inputs = {
+    **_simple_qkv,
+    'g': TensorSpec(shape_BTHD, transform=logsigmoid),
+    'beta': TensorSpec(shape_BTH, transform=sigmoid_transform),
+}
+
 register_op(OpConfig(
     name='chunk_kda',
     import_path='fla.ops.kda',
-    inputs={
-        **_simple_qkv,
-        'g': TensorSpec(shape_BTHD, transform=logsigmoid),
-        'beta': TensorSpec(shape_BTH, transform=sigmoid_transform),
-    },
+    inputs=_kda_inputs,
     extra_kwargs={'use_qk_l2norm_in_kernel': True, 'safe_gate': True, 'lower_bound': -5},
+    # `--backend autotune` bypasses vendor backends (e.g. triton_ascend's fixed-config
+    # NPU kernels) so the mainline autotuned kernels run instead.
+    backend_env={'autotune': 'FLA_DISABLE_BACKEND_DISPATCH'},
+    category='gate_beta',
+))
+
+# Pure-torch chunked KDA baseline. Shares `_kda_inputs` with chunk_kda so the
+# kernel, autotune, and torch modes all see identical input tensors.
+# fp32 internals with a python chunk loop: forward-only.
+register_op(OpConfig(
+    name='naive_chunk_kda',
+    import_path='fla.ops.kda.naive',
+    inputs=_kda_inputs,
+    skip_backward=True,
     category='gate_beta',
 ))
 

@@ -240,6 +240,11 @@ def _get_machine_info() -> dict:
         info['gpu_count'] = torch.npu.device_count()
         info['gpu_memory_gb'] = round(props.total_memory / (1024**3), 1)
         info['cann_version'] = getattr(torch.version, 'cann', None) or 'N/A'
+    elif device_platform == 'mlu' and hasattr(torch, 'mlu') and torch.mlu.is_available():
+        props = torch.mlu.get_device_properties(0)
+        info['gpu_name'] = torch.mlu.get_device_name(0)
+        info['gpu_count'] = torch.mlu.device_count()
+        info['gpu_memory_gb'] = round(props.total_memory / (1024**3), 1)
     elif torch.cuda.is_available():
         info['gpu_name'] = torch.cuda.get_device_name(0)
         info['gpu_count'] = torch.cuda.device_count()
@@ -292,10 +297,11 @@ def benchmark_op(
         modes = ['fwd', 'fwdbwd']
 
     config = get_op(op_name)
-    op_fn = _import_op(config)
 
     # `--backend` selects an op backend by toggling its dispatch env var (see OpConfig.backend_env),
     # matching how FLA backends are enabled at runtime. 'triton' (or unset) leaves the default path.
+    # Must run before `_import_op`: some vars (e.g. FLA_DISABLE_BACKEND_DISPATCH) are read once
+    # at `fla.ops.backends` import time, so setting them later has no effect.
     call_kwargs = dict(config.extra_kwargs)
     op_label = op_name
     backend_env = config.backend_env or {}
@@ -309,6 +315,8 @@ def benchmark_op(
     elif backend == 'triton':
         for env in backend_env.values():
             os.environ[env] = '0'
+
+    op_fn = _import_op(config)
 
     if config.skip_backward and 'fwdbwd' in modes:
         modes = [m for m in modes if m != 'fwdbwd']
