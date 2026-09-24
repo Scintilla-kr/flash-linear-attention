@@ -371,13 +371,17 @@ register_op(OpConfig(
     category='gate_beta',
 ))
 
-# Pure-torch chunked KDA baseline. Shares `_kda_inputs` with chunk_kda so the
-# kernel, autotune, and torch modes all see identical input tensors.
+# Pure-torch chunked KDA baseline. Shares `_kda_inputs` shapes/transforms with chunk_kda
+# so the kernel, autotune, and torch modes all see identical input values.
+# Grad is off: fp32 internals would otherwise retain a huge autograd graph in fwd.
 # fp32 internals with a python chunk loop: forward-only.
 register_op(OpConfig(
     name='naive_chunk_kda',
     import_path='fla.ops.kda.naive',
-    inputs=_kda_inputs,
+    inputs={
+        name: TensorSpec(spec.shape_fn, requires_grad=False, dtype=spec.dtype, transform=spec.transform)
+        for name, spec in _kda_inputs.items()
+    },
     skip_backward=True,
     category='gate_beta',
 ))

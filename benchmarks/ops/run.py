@@ -326,6 +326,10 @@ def benchmark_op(
     op_fn = _import_op(config)
 
     if config.skip_backward and 'fwdbwd' in modes:
+        logger.warning(
+            f"Op '{op_name}' has skip_backward=True; dropping 'fwdbwd' from modes. "
+            f"Use --modes fwd for this op."
+        )
         modes = [m for m in modes if m != 'fwdbwd']
 
     # Per-op shape override (e.g., AttnRes uses an `L` axis not in B/T/H/D)
@@ -365,14 +369,24 @@ def benchmark_op(
             inputs = generate_inputs(config, B, T, H, D, dtype=dtype, device=device_name, **extra_shape_kw)
             out = op_fn(**inputs, **call_kwargs)
             out_tensor = out[0] if config.output_is_tuple else out
-            do = torch.randn_like(out_tensor)
 
-            def _fwdbwd_fn(inputs=inputs, do=do):
-                result = op_fn(**inputs, **call_kwargs)
-                t = result[0] if config.output_is_tuple else result
-                t.backward(do)
+            # Warm what will be timed: fwdbwd mode warms fwd+bwd (also triggers
+            # bwd-kernel autotune); fwd-only ops (skip_backward) must not call
+            # backward — with grad-enabled inputs the whole fp32 autograd graph
+            # would be retained and OOM on large shapes.
+            if 'fwdbwd' in modes:
+                do = torch.randn_like(out_tensor)
 
-            _warmup_autotune(_fwdbwd_fn, device=device_name)
+                def _warm_fn(inputs=inputs, do=do):
+                    result = op_fn(**inputs, **call_kwargs)
+                    t = result[0] if config.output_is_tuple else result
+                    t.backward(do)
+            else:
+
+                def _warm_fn(inputs=inputs):
+                    op_fn(**inputs, **call_kwargs)
+
+            _warmup_autotune(_warm_fn, device=device_name)
         except Exception as e:
             logger.warning(f"Warmup failed for {op_name} @ {shape_name}: {e}")
             failed_shapes.add(shape_name)
