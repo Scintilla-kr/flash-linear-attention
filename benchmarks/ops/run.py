@@ -153,6 +153,13 @@ import torch
 # and standalone (python /tmp/fla_bench_xxx/run.py) for cross-commit use.
 # ``device_name`` is imported inside ``benchmark_op`` so the parent compare
 # process never initializes the accelerator.
+#
+# Standalone execution puts only this file's dir on sys.path (not the cwd),
+# so a stale pip-installed fla would shadow the repo checkout. Put the project
+# root on sys.path first so the local fla package wins. For the cross-commit
+# copy under /tmp the computed root is harmless (no fla package there) and fla
+# resolves to the editable install of the worktree being benchmarked.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from registry import (  # noqa: E402
     SHAPE_CONFIGS,
