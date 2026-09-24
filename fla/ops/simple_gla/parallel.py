@@ -28,11 +28,16 @@ triton_config = {'grf_mode': 'large'} if IS_INTEL_ALCHEMIST else {}
 NUM_WARPS = [2, 4, 8] if IS_NVIDIA_HOPPER else [2, 4, 8, 16]
 
 
+# 'NV' must be the last heuristics entry: Python 3.11.0/3.11.1's
+# inspect.BlockFinder resets its decorator state on the nested ')' of
+# triton.cdiv(...), so any heuristic lambda after it truncates
+# inspect.getsource and crashes triton's jit source parsing
+# (triton-lang/triton#5224). Fixed in Python 3.11.2+.
 @triton.heuristics({
-    'NV': lambda args: triton.cdiv(args['V'], args['BV']),
     'OUTPUT_ATTENTIONS': lambda args: args['attn'] is not None,
     'USE_G': lambda args: args['g'] is not None,
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
+    'NV': lambda args: triton.cdiv(args['V'], args['BV']),
 })
 @triton.autotune(
     configs=[
@@ -382,10 +387,11 @@ def parallel_simple_gla_bwd_kernel_dkv(
         tl.store(dg + o_k * H, b_dg.to(dg.dtype.element_ty), mask=m_k)
 
 
+# 'NV' stays last for the same Python 3.11.0/3.11.1 reason as above.
 @triton.heuristics({
-    'NV': lambda args: triton.cdiv(args['V'], args['BV']),
     'USE_G': lambda args: args['g'] is not None,
     'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
+    'NV': lambda args: triton.cdiv(args['V'], args['BV']),
 })
 @triton.autotune(
     configs=[
